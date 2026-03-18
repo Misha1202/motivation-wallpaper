@@ -1,28 +1,27 @@
 """
 Сервис для генерации мотивационных обоев для телефона
-С реальными изображениями и правильным позиционированием текста
-Размер под iPhone 12 Pro (1170x2532)
+Оптимизировано для Render (512 MB RAM)
+Использует Unsplash API для фоновых изображений
 """
 
 import os
 import io
 import requests
 import random
-import textwrap
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import time
+from functools import lru_cache
 
 # Конфигурация
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
-PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "")  # Получите на pexels.com
+UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY", "")
 
 # URL API
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
-PEXELS_API_URL = "https://api.pexels.com/v1/search"
 UNSPLASH_API_URL = "https://api.unsplash.com/photos/random"
 
 # Создаем FastAPI приложение
@@ -40,12 +39,16 @@ app.add_middleware(
 MOBILE_WIDTH = 1170
 MOBILE_HEIGHT = 2532
 
-# Кэш для цитат
+# Уменьшенное качество для экономии памяти
+JPEG_QUALITY = 85
+RESAMPLE_FILTER = Image.Resampling.BILINEAR  # менее требовательный чем LANCZOS
+
+# Кэш для цитат (чтобы реже дергать DeepSeek)
 quote_cache = {
     "quote": "",
     "timestamp": 0
 }
-CACHE_DURATION = 1800  # 30 минут
+CACHE_DURATION = 3600  # 1 час
 
 # Запасные цитаты
 FALLBACK_QUOTES = [
@@ -54,12 +57,19 @@ FALLBACK_QUOTES = [
     "Блаженны милостивые, ибо они помилованы будут\n(Матфея 5:7)",
     "Господь — Пастырь мой; я ни в чем не буду нуждаться\n(Псалом 22:1)",
     "Все могу в укрепляющем меня Иисусе Христе\n(Филиппийцам 4:13)",
-    "Не бойся, только веруй\n(Марка 5:36)"
+    "Не бойся, только веруй\n(Марка 5:36)",
+    "Верь в себя и свои мечты",
+    "Каждый день - новое начало"
 ]
+
+@lru_cache(maxsize=1)
+def get_cached_quote():
+    """Кэширование запасных цитат"""
+    return random.choice(FALLBACK_QUOTES)
 
 def get_biblical_quote():
     """
-    Получает библейскую цитату от DeepSeek API
+    Получает библейскую цитату от DeepSeek API с кэшированием
     """
     global quote_cache
     
@@ -68,7 +78,7 @@ def get_biblical_quote():
         return quote_cache["quote"]
     
     if not DEEPSEEK_API_KEY:
-        return random.choice(FALLBACK_QUOTES)
+        return get_cached_quote()
     
     headers = {
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
@@ -78,19 +88,9 @@ def get_biblical_quote():
     is_biblical = random.random() < 0.8
     
     if is_biblical:
-        prompt_text = """Сгенерируй вдохновляющую библейскую цитату для обоев.
-Формат: сама цитата, потом с новой строки (Источник)
-Цитата должна быть на русском, 3-7 строк.
-Пример:
-Ибо так возлюбил Бог мир, что отдал Сына Своего Единородного
-(Иоанна 3:16)"""
+        prompt_text = """Сгенерируй библейскую цитату для обоев. Формат: цитата, потом с новой строки (Источник). Коротко, 3-5 строк."""
     else:
-        prompt_text = """Сгенерируй мощную мотивационную цитату для обоев.
-Формат: сама цитата, потом с новой строки (Автор)
-3-7 строк.
-Пример:
-Верь в себя, и у тебя всё получится
-(Народная мудрость)"""
+        prompt_text = """Сгенерируй мотивационную цитату для обоев. Формат: цитата, потом с новой строки (Автор). Коротко, 3-5 строк."""
     
     prompt = {
         "model": "deepseek-chat",
@@ -99,11 +99,11 @@ def get_biblical_quote():
             {"role": "user", "content": prompt_text}
         ],
         "temperature": 0.9,
-        "max_tokens": 150
+        "max_tokens": 100  # Уменьшено для экономии
     }
     
     try:
-        response = requests.post(DEEPSEEK_API_URL, headers=headers, json=prompt, timeout=15)
+        response = requests.post(DEEPSEEK_API_URL, headers=headers, json=prompt, timeout=10)
         response.raise_for_status()
         
         data = response.json()
@@ -117,326 +117,224 @@ def get_biblical_quote():
         
     except Exception as e:
         print(f"Ошибка DeepSeek API: {e}")
-        return random.choice(FALLBACK_QUOTES)
+        return get_cached_quote()
 
-def get_image_from_pexels(keyword=None):
+def get_unsplash_image(keyword=None):
     """
-    Получает реальное изображение с Pexels API
+    Получает изображение с Unsplash API (оптимизировано)
     """
     if not keyword:
-        keywords = [
-            "nature", "mountains", "sunset", "ocean", "forest",
-            "sky", "stars", "clouds", "landscape", "peaceful",
-            "church", "cathedral", "light", "heaven", "spiritual"
-        ]
+        keywords = ["nature", "mountain", "ocean", "forest", "sky", "spiritual"]
         keyword = random.choice(keywords)
     
-    headers = {"Authorization": PEXELS_API_KEY}
+    if not UNSPLASH_ACCESS_KEY:
+        return None
+    
+    headers = {"Authorization": f"Client-ID {UNSPLASH_ACCESS_KEY}"}
     params = {
         "query": keyword,
-        "per_page": 1,
         "orientation": "portrait",
-        "size": "large"
+        "count": 1,
+        "content_filter": "high"
     }
     
     try:
-        response = requests.get(PEXELS_API_URL, headers=headers, params=params, timeout=10)
+        response = requests.get(UNSPLASH_API_URL, headers=headers, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
         
-        if data["photos"]:
-            # Берем фото с хорошим разрешением
-            photo = data["photos"][0]
-            img_url = photo["src"]["portrait"]  # или original для макс качества
+        if data and len(data) > 0:
+            # Используем regular размер (меньше чем raw/original)
+            img_url = data[0]["urls"]["regular"]
             
-            # Скачиваем изображение
+            # Скачиваем с таймаутом
             img_response = requests.get(img_url, timeout=15)
             img_response.raise_for_status()
             
+            # Открываем изображение
             img_bytes = io.BytesIO(img_response.content)
             background = Image.open(img_bytes)
             
-            # Обрезаем/масштабируем под наш размер
-            background = background.resize((MOBILE_WIDTH, MOBILE_HEIGHT), Image.Resampling.LANCZOS)
+            # Быстрое изменение размера
+            background = background.resize(
+                (MOBILE_WIDTH, MOBILE_HEIGHT), 
+                RESAMPLE_FILTER
+            )
             
-            # Добавляем легкое затемнение для читаемости текста
+            # Конвертируем в RGB если нужно
+            if background.mode != 'RGB':
+                background = background.convert('RGB')
+            
+            # Легкое затемнение
             enhancer = ImageEnhance.Brightness(background)
-            background = enhancer.enhance(0.8)  # затемняем на 20%
+            background = enhancer.enhance(0.8)
             
             return background
+            
     except Exception as e:
-        print(f"Ошибка Pexels: {e}")
+        print(f"Ошибка Unsplash: {e}")
     
-    # Если Pexels не сработал - пробуем Unsplash
-    return get_image_from_unsplash()
-
-def get_image_from_unsplash(keyword=None):
-    """
-    Запасной вариант - Unsplash API
-    """
-    if not keyword:
-        keyword = random.choice(["nature", "spiritual", "landscape", "sky"])
-    
-    # Unsplash требует Client-ID
-    # Для демо используем публичный Access Key (нужно зарегистрироваться)
-    # Пока заフォールбэк на градиент
-    
-    # Временно возвращаем градиент
-    return create_gradient_background()
+    return None
 
 def create_gradient_background():
     """
-    Создает красивый градиентный фон как запасной вариант
+    Создает простой градиент (быстро и экономично)
     """
     img = Image.new('RGB', (MOBILE_WIDTH, MOBILE_HEIGHT))
     draw = ImageDraw.Draw(img)
     
-    # Библейские цвета
-    color_schemes = [
-        ((180, 150, 100), (100, 80, 150)),  # золото-фиолетовый
-        ((200, 180, 150), (80, 100, 180)),  # песчано-синий
-        ((140, 170, 200), (70, 70, 120)),   # небесно-синий
-    ]
+    # Простая цветовая схема
+    color1 = (180, 150, 100)  # золотой
+    color2 = (100, 80, 150)   # фиолетовый
     
-    color1, color2 = random.choice(color_schemes)
+    # Упрощенный градиент (каждая 10-я строка для скорости)
+    for y in range(0, MOBILE_HEIGHT, 10):
+        ratio = y / MOBILE_HEIGHT
+        r = int(color1[0] + (color2[0] - color1[0]) * ratio)
+        g = int(color1[1] + (color2[1] - color1[1]) * ratio)
+        b = int(color1[2] + (color2[2] - color1[2]) * ratio)
+        
+        # Рисуем полосу высотой 10 пикселей
+        for i in range(10):
+            if y + i < MOBILE_HEIGHT:
+                draw.line([(0, y + i), (MOBILE_WIDTH, y + i)], fill=(r, g, b))
     
-    # Радиальный градиент от центра
-    center_x, center_y = MOBILE_WIDTH // 2, MOBILE_HEIGHT // 3
-    
-    for y in range(MOBILE_HEIGHT):
-        for x in range(0, MOBILE_WIDTH, 3):
-            dist = ((x - center_x) ** 2 + (y - center_y) ** 2) ** 0.5
-            max_dist = max(MOBILE_WIDTH, MOBILE_HEIGHT)
-            ratio = min(1.0, dist / max_dist * 1.5)
-            
-            r = int(color1[0] + (color2[0] - color1[0]) * ratio)
-            g = int(color1[1] + (color2[1] - color1[1]) * ratio)
-            b = int(color1[2] + (color2[2] - color1[2]) * ratio)
-            
-            draw.point((x, y), fill=(r, g, b))
-            if x + 1 < MOBILE_WIDTH:
-                draw.point((x + 1, y), fill=(r, g, b))
-            if x + 2 < MOBILE_WIDTH:
-                draw.point((x + 2, y), fill=(r, g, b))
-    
-    img = img.filter(ImageFilter.GaussianBlur(radius=2))
     return img
 
-def wrap_text_to_fit(text, font, max_width, draw):
+def wrap_text(text, font, max_width, draw):
     """
-    Разбивает текст на строки с учетом ширины
+    Разбивает текст на строки (оптимизировано)
     """
-    # Сначала разбиваем по существующим переносам строк
-    paragraphs = text.split('\n')
-    all_lines = []
+    words = text.split()
+    lines = []
+    current_line = []
     
-    for para in paragraphs:
-        if not para.strip():
-            continue
-            
-        words = para.split()
-        lines = []
-        current_line = []
-        
-        for word in words:
-            test_line = ' '.join(current_line + [word])
-            # Проверяем ширину
-            bbox = draw.textbbox((0, 0), test_line, font=font)
-            if bbox[2] - bbox[0] <= max_width:
-                current_line.append(word)
-            else:
-                if current_line:
-                    lines.append(' '.join(current_line))
-                current_line = [word]
-        
-        if current_line:
-            lines.append(' '.join(current_line))
-        
-        all_lines.extend(lines)
+    for word in words:
+        test_line = ' '.join(current_line + [word])
+        bbox = draw.textbbox((0, 0), test_line, font=font)
+        if bbox[2] - bbox[0] <= max_width:
+            current_line.append(word)
+        else:
+            if current_line:
+                lines.append(' '.join(current_line))
+            current_line = [word]
     
-    return all_lines
+    if current_line:
+        lines.append(' '.join(current_line))
+    
+    return lines
 
 def add_text_to_image(image, text):
     """
-    Накладывает текст с авто-подгоном размера и смещением ниже центра
+    Накладывает текст (оптимизированная версия)
     """
-    img_with_text = image.copy().convert('RGBA')
+    # Работаем напрямую с RGB для экономии памяти
+    img_with_text = image.copy()
     draw = ImageDraw.Draw(img_with_text)
     
-    # Параметры текста
-    max_width = MOBILE_WIDTH - 200  # отступы по бокам
-    target_y_position = MOBILE_HEIGHT * 0.65  # 65% от верхнего края (ниже центра)
-    
-    # Пробуем разные размеры шрифта
-    font_sizes = [140, 130, 120, 110, 100, 90, 80, 70, 60]
-    selected_font = None
-    selected_lines = []
-    selected_font_size = 60
-    
-    # Пытаемся найти шрифт
-    font = None
-    font_paths = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf",
-        "/System/Library/Fonts/Times.ttc",
-        "C:\\Windows\\Fonts\\times.ttf",
-    ]
-    
-    for font_path in font_paths:
-        if os.path.exists(font_path):
-            try:
-                font = ImageFont.truetype(font_path, 140)
+    # Загружаем шрифт (один раз)
+    try:
+        font = ImageFont.load_default()
+        # Пытаемся найти шрифт побольше
+        font_paths = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
+            "/System/Library/Fonts/Times.ttc",
+        ]
+        for path in font_paths:
+            if os.path.exists(path):
+                font = ImageFont.truetype(path, 90)
                 break
-            except:
-                continue
-    
-    if not font:
+    except:
         font = ImageFont.load_default()
     
-    # Подбираем оптимальный размер шрифта
-    for size in font_sizes:
-        try:
-            current_font = ImageFont.truetype(font.path, size) if hasattr(font, 'path') else font
-        except:
-            current_font = font
-        
-        # Разбиваем текст
-        lines = wrap_text_to_fit(text, current_font, max_width, draw)
-        
-        if len(lines) <= 6:  # Не больше 6 строк
-            selected_font = current_font
-            selected_lines = lines
-            selected_font_size = size
-            break
+    # Параметры
+    max_width = MOBILE_WIDTH - 160  # отступы
+    target_y = int(MOBILE_HEIGHT * 0.65)  # ниже центра
     
-    if not selected_font:
-        # Если ничего не подошло - используем базовый
-        selected_font = font
-        selected_lines = text.split('\n')[:4]
+    # Разбиваем текст
+    lines = wrap_text(text, font, max_width, draw)
     
-    # Рассчитываем высоту текстового блока
-    line_heights = []
+    # Вычисляем высоту текста
     total_height = 0
+    line_heights = []
+    for line in lines:
+        bbox = draw.textbbox((0, 0), line, font=font)
+        h = bbox[3] - bbox[1]
+        line_heights.append(h)
+        total_height += h + 10
+    total_height -= 10
     
-    for line in selected_lines:
-        bbox = draw.textbbox((0, 0), line, font=selected_font)
-        height = bbox[3] - bbox[1]
-        line_heights.append(height)
-        total_height += height + 15
+    # Позиция начала
+    start_y = target_y - total_height // 2
     
-    total_height -= 15
+    # Рисуем подложку (простой прямоугольник)
+    padding = 40
     
-    # Позиция текста (смещена ниже центра)
-    start_y = int(target_y_position - total_height / 2)
-    
-    # Создаем подложку под текст
-    # Сначала находим максимальную ширину строки
+    # Получаем максимальную ширину строки
     max_line_width = 0
-    for line in selected_lines:
-        bbox = draw.textbbox((0, 0), line, font=selected_font)
+    for i, line in enumerate(lines):
+        bbox = draw.textbbox((0, 0), line, font=font)
         max_line_width = max(max_line_width, bbox[2] - bbox[0])
     
-    padding = 60
-    overlay = Image.new('RGBA', img_with_text.size, (0, 0, 0, 0))
-    overlay_draw = ImageDraw.Draw(overlay)
+    # Координаты подложки
+    left = (MOBILE_WIDTH - max_line_width) // 2 - padding
+    right = (MOBILE_WIDTH + max_line_width) // 2 + padding
+    top = start_y - padding
+    bottom = start_y + total_height + padding
     
-    # Рисуем полупрозрачный прямоугольник
-    overlay_draw.rectangle(
-        [(MOBILE_WIDTH - max_line_width) // 2 - padding,
-         start_y - padding,
-         (MOBILE_WIDTH + max_line_width) // 2 + padding,
-         start_y + total_height + padding],
-        fill=(0, 0, 0, 180)
-    )
+    # Рисуем черную подложку
+    overlay = Image.new('RGBA', (right-left, bottom-top), (0, 0, 0, 180))
+    img_with_text.paste(overlay, (left, top), overlay)
     
-    # Добавляем декоративные элементы для библейских цитат
-    if any(word in text.lower() for word in ["господ", "бог", "христ", "иисус", "свят"]):
-        # Золотая линия слева
-        overlay_draw.rectangle(
-            [(MOBILE_WIDTH - max_line_width) // 2 - padding - 5,
-             start_y - padding - 10,
-             (MOBILE_WIDTH - max_line_width) // 2 - padding,
-             start_y + total_height + padding + 10],
-            fill=(255, 215, 0, 200)
-        )
-        # Золотая линия справа
-        overlay_draw.rectangle(
-            [(MOBILE_WIDTH + max_line_width) // 2 + padding,
-             start_y - padding - 10,
-             (MOBILE_WIDTH + max_line_width) // 2 + padding + 5,
-             start_y + total_height + padding + 10],
-            fill=(255, 215, 0, 200)
-        )
-    
-    # Накладываем подложку
-    img_with_text = Image.alpha_composite(img_with_text, overlay)
+    # Создаем новый Draw объект после вставки
     draw = ImageDraw.Draw(img_with_text)
     
     # Рисуем текст
     current_y = start_y
-    
-    for i, line in enumerate(selected_lines):
-        # Центрируем строку
-        bbox = draw.textbbox((0, 0), line, font=selected_font)
-        line_width = bbox[2] - bbox[0]
-        x = (MOBILE_WIDTH - line_width) // 2
-        
-        # Тень
-        draw.text((x + 3, current_y + 3), line, font=selected_font, fill=(0, 0, 0, 150))
+    for i, line in enumerate(lines):
+        bbox = draw.textbbox((0, 0), line, font=font)
+        x = (MOBILE_WIDTH - (bbox[2] - bbox[0])) // 2
         
         # Текст
-        if any(word in text.lower() for word in ["господ", "бог", "христ", "иисус", "свят"]):
-            # Теплый белый для библейских
-            draw.text((x, current_y), line, font=selected_font, fill=(255, 245, 220))
-        else:
-            draw.text((x, current_y), line, font=selected_font, fill=(255, 255, 255))
+        draw.text((x, current_y), line, font=font, fill=(255, 255, 255))
         
-        current_y += line_heights[i] + 15
+        current_y += line_heights[i] + 10
     
-    return img_with_text.convert('RGB')
+    return img_with_text
 
 @app.get("/")
 @app.get("/wallpaper")
 async def generate_wallpaper():
     """
-    Генерирует обои с реальными изображениями и правильным текстом
+    Генерирует обои (оптимизированная версия)
     """
     try:
         # Получаем цитату
         quote = get_biblical_quote()
         
-        # Пытаемся получить реальное изображение
-        if PEXELS_API_KEY:
-            # Определяем ключевое слово из цитаты
-            keywords = {
-                "гор": "mountains",
-                "мор": "ocean",
-                "неб": "sky",
-                "звезд": "stars",
-                "свет": "light",
-                "храм": "church",
-                "пут": "path",
-                "сад": "garden",
-                "цвет": "flowers"
-            }
-            
-            keyword = "spiritual"
-            for ru, en in keywords.items():
-                if ru in quote.lower():
-                    keyword = en
-                    break
-            
-            background = get_image_from_pexels(keyword)
-        else:
+        # Пытаемся получить фото с Unsplash
+        background = get_unsplash_image()
+        
+        # Если не получилось - градиент
+        if background is None:
             background = create_gradient_background()
         
         # Добавляем текст
         final_image = add_text_to_image(background, quote)
         
-        # Сохраняем
+        # Сохраняем с оптимизацией
         img_byte_arr = io.BytesIO()
-        final_image.save(img_byte_arr, format='JPEG', quality=95, optimize=True)
+        final_image.save(
+            img_byte_arr, 
+            format='JPEG', 
+            quality=JPEG_QUALITY, 
+            optimize=True
+        )
         img_byte_arr.seek(0)
+        
+        # Очищаем память
+        del background
+        del final_image
         
         return StreamingResponse(
             img_byte_arr, 
@@ -446,12 +344,14 @@ async def generate_wallpaper():
         
     except Exception as e:
         print(f"Ошибка: {e}")
-        # Временное решение при ошибке
-        img = create_gradient_background()
-        img = add_text_to_image(img, random.choice(FALLBACK_QUOTES))
+        # Простейший запасной вариант
+        img = Image.new('RGB', (MOBILE_WIDTH, MOBILE_HEIGHT), (100, 80, 150))
+        img = add_text_to_image(img, get_cached_quote())
+        
         img_byte_arr = io.BytesIO()
-        img.save(img_byte_arr, format='JPEG')
+        img.save(img_byte_arr, format='JPEG', quality=80)
         img_byte_arr.seek(0)
+        
         return StreamingResponse(img_byte_arr, media_type="image/jpeg")
 
 @app.get("/health")

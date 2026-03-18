@@ -16,7 +16,7 @@ import hashlib
 import time
 
 # Конфигурация
-DEEPSEEK_API_KEY = os.getenv("sk-3c2f6de436a14a638a40492e218b17d9", "")
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 
 # URL API
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"

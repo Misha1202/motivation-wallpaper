@@ -51,6 +51,7 @@ quote_cache = {
 CACHE_DURATION = 3600  # 1 час
 
 # Запасные цитаты
+# Запасные цитаты (без кэширования)
 FALLBACK_QUOTES = [
     "Ибо так возлюбил Бог мир, что отдал Сына Своего Единородного\n(Иоанна 3:16)",
     "Уповай на Господа всем сердцем твоим\n(Притчи 3:5)",
@@ -58,14 +59,100 @@ FALLBACK_QUOTES = [
     "Господь — Пастырь мой; я ни в чем не буду нуждаться\n(Псалом 22:1)",
     "Все могу в укрепляющем меня Иисусе Христе\n(Филиппийцам 4:13)",
     "Не бойся, только веруй\n(Марка 5:36)",
-    "Верь в себя и свои мечты",
-    "Каждый день - новое начало"
+    "Бог есть любовь\n(1 Иоанна 4:8)",
+    "Свет во тьме светит\n(Иоанна 1:5)",
+    "Просите, и дано будет вам\n(Матфея 7:7)",
+    "Блаженны чистые сердцем\n(Матфея 5:8)",
+    "Вера без дел мертва\n(Иакова 2:26)",
+    "Идите за Мной\n(Матфея 4:19)",
+    "Не бойся, только веруй\n(Марка 5:36)",
+    "Мир оставляю вам\n(Иоанна 14:27)",
+    "Радость моя в вас пребудет\n(Иоанна 15:11)"
 ]
 
-@lru_cache(maxsize=1)
-def get_cached_quote():
-    """Кэширование запасных цитат"""
-    return random.choice(FALLBACK_QUOTES)
+# УДАЛИТЕ эту функцию полностью:
+# @lru_cache(maxsize=1)
+# def get_cached_quote():
+#     return random.choice(FALLBACK_QUOTES)
+
+def get_biblical_quote():
+    """
+    Получает библейскую цитату от DeepSeek API
+    """
+    global quote_cache
+    
+    current_time = time.time()
+    if quote_cache["quote"] and (current_time - quote_cache["timestamp"] < CACHE_DURATION):
+        return quote_cache["quote"]
+    
+    # Если нет ключа API, возвращаем СЛУЧАЙНУЮ цитату из списка
+    if not DEEPSEEK_API_KEY:
+        return random.choice(FALLBACK_QUOTES)  # ← УБЕДИТЕСЬ, ЧТО ТУТ random.choice!
+    
+    headers = {
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    is_biblical = random.random() < 0.8
+    
+    if is_biblical:
+        prompt_text = """Сгенерируй вдохновляющую библейскую цитату для обоев на телефон.
+Формат: сама цитата, затем с новой строки (Книга глава:стих)
+Цитата должна быть на русском языке, красивая, вдохновляющая.
+Примеры:
+Ибо так возлюбил Бог мир, что отдал Сына Своего Единородного
+(Иоанна 3:16)
+
+Уповай на Господа всем сердцем твоим
+(Притчи 3:5)
+
+Господь — Пастырь мой; я ни в чем не буду нуждаться
+(Псалом 22:1)"""
+    else:
+        prompt_text = """Сгенерируй короткую мощную мотивационную цитату для обоев на телефон.
+Формат: сама цитата, затем с новой строки (Автор)
+Цитата должна быть на русском языке, вдохновляющей.
+Примеры:
+Верь в себя и свои мечты
+(Народная мудрость)
+
+Каждый день — новая возможность
+(Народная мудрость)"""
+    
+    prompt = {
+        "model": "deepseek-chat",
+        "messages": [
+            {"role": "system", "content": "Ты генератор красивых цитат. Отвечай ТОЛЬКО текстом цитаты, без пояснений, без кавычек."},
+            {"role": "user", "content": prompt_text}
+        ],
+        "temperature": 0.9,
+        "max_tokens": 150
+    }
+    
+    try:
+        response = requests.post(
+            DEEPSEEK_API_URL, 
+            headers=headers, 
+            json=prompt, 
+            timeout=15
+        )
+        response.raise_for_status()
+        
+        data = response.json()
+        quote = data["choices"][0]["message"]["content"].strip()
+        quote = quote.strip('"').strip('„').strip('“')
+        
+        # Сохраняем в кэш
+        quote_cache["quote"] = quote
+        quote_cache["timestamp"] = current_time
+        
+        return quote
+        
+    except Exception as e:
+        print(f"Ошибка DeepSeek API: {e}")
+        # При ошибке возвращаем СЛУЧАЙНУЮ цитату
+        return random.choice(FALLBACK_QUOTES)  # ← УБЕДИТЕСЬ, ЧТО ТУТ random.choice!
 
 def get_biblical_quote():
     """

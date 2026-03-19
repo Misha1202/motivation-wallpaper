@@ -526,7 +526,7 @@ def add_text_to_image(image, text):
 @app.get("/", response_class=HTMLResponse)
 async def root():
     """Главная страница с интерфейсом"""
-    return HTMLResponse(HTML_TEMPLATE % str(QUOTE_IDS))
+    return HTMLResponse(HTML_TEMPLATE.format(quote_ids=str(QUOTE_IDS)))
 
 @app.get("/health")
 async def health_check():

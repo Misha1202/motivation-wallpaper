@@ -92,10 +92,10 @@ SIMPLE_HTML = """
 """
 
 # ============================================
-# ПОЛУЧЕНИЕ ЦИТАТЫ
+# ПОЛУЧЕНИЕ ЦИТАТЫ (исправленная версия)
 # ============================================
 def get_quote_from_azbyka(quote_id):
-    """Получает цитату с azbyka.ru по ID"""
+    """Получает одну случайную цитату с azbyka.ru по ID"""
     try:
         url = f"https://azbyka.ru/otechnik/Biblia/tsitaty-iz-biblii/{quote_id}"
         headers = {'User-Agent': 'Mozilla/5.0'}
@@ -105,24 +105,31 @@ def get_quote_from_azbyka(quote_id):
         
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Находим все параграфы с классом txt
             quote_paragraphs = soup.find_all('p', class_='txt')
             
             if quote_paragraphs:
-                quote_parts = []
-                for p in quote_paragraphs:
-                    text = p.get_text().strip()
-                    if text:
-                        quote_parts.append(text)
+                # Выбираем случайный параграф
+                random_paragraph = random.choice(quote_paragraphs)
                 
-                if quote_parts:
-                    return '\n'.join(quote_parts)
+                # Получаем текст, убираем HTML теги
+                text = random_paragraph.get_text().strip()
+                
+                # Очищаем от лишних пробелов
+                text = ' '.join(text.split())
+                
+                print(f"✅ Выбрана случайная цитата {len(quote_paragraphs)} из {len(quote_paragraphs)}")
+                return text
             
+            # Если нет p.txt, ищем другой текст
             content = soup.find('div', class_='content')
             if content:
-                return content.get_text().strip()
+                text = content.get_text().strip()
+                return ' '.join(text.split())
                     
     except Exception as e:
-        print(f"Ошибка: {e}")
+        print(f"❌ Ошибка получения цитаты {quote_id}: {e}")
     
     return None
 

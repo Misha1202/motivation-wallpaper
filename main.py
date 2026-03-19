@@ -1,6 +1,6 @@
 """
-Сервер для генерации обоев с библейскими цитатами
-Деплой на Render.com - одна точка входа
+Максимально простой сервер для генерации обоев
+При каждом обновлении страницы - новая картинка
 """
 
 import os
@@ -9,9 +9,9 @@ import random
 import requests
 from bs4 import BeautifulSoup
 from PIL import Image, ImageDraw, ImageFont, ImageEnhance
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI
 from fastapi.responses import StreamingResponse, HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 # ============================================
@@ -22,8 +22,7 @@ UNSPLASH_API_URL = "https://api.unsplash.com/photos/random"
 
 MOBILE_WIDTH = 1170
 MOBILE_HEIGHT = 2532
-JPEG_QUALITY = 85
-RESAMPLE_FILTER = Image.Resampling.BILINEAR
+JPEG_QUALITY = 95
 
 # Загрузка ID цитат из файла
 QUOTE_IDS = []
@@ -45,12 +44,10 @@ FALLBACK_QUOTES = [
     "Уповай на Господа всем сердцем твоим\n(Притчи 3:5)",
     "Господь — Пастырь мой; я ни в чем не буду нуждаться\n(Псалом 22:1)",
     "Все могу в укрепляющем меня Иисусе Христе\n(Филиппийцам 4:13)",
-    "Бог есть любовь\n(1 Иоанна 4:8)",
 ]
 
 app = FastAPI()
 
-# Настройка CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -59,243 +56,55 @@ app.add_middleware(
 )
 
 # ============================================
-# HTML ШАБЛОН (с экранированными фигурными скобками)
+# ПРОСТЕЙШИЙ HTML - ТОЛЬКО КАРТИНКА
 # ============================================
-
-HTML_TEMPLATE = """
+SIMPLE_HTML = """
 <!DOCTYPE html>
-<html lang="ru">
+<html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Библейские обои | Генератор</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Библейские обои</title>
     <style>
-        * {{
+        body {
             margin: 0;
             padding: 0;
-            box-sizing: border-box;
-        }}
-        body {{
-            min-height: 100vh;
+            background: #000;
             display: flex;
             justify-content: center;
             align-items: center;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            padding: 10px;
-        }}
-        .container {{
+            min-height: 100vh;
+        }
+        img {
             width: 100%;
             max-width: 430px;
-            margin: 0 auto;
-        }}
-        .wallpaper-card {{
-            background: white;
-            border-radius: 30px;
-            overflow: hidden;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
-        }}
-        .wallpaper-image {{
-            display: block;
-            width: 100%;
             height: auto;
-            aspect-ratio: 1170/2532;
-            background: #f0f0f0;
-            transition: opacity 0.3s ease;
-            cursor: pointer;
-        }}
-        .wallpaper-image.loading {{
-            opacity: 0.5;
-        }}
-        .controls {{
-            padding: 20px;
-            background: white;
-            text-align: center;
-        }}
-        .refresh-btn {{
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            display: block;
             border: none;
-            padding: 15px 30px;
-            border-radius: 50px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
-            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
-            width: 100%;
-            max-width: 300px;
-            margin: 0 auto;
-        }}
-        .refresh-btn:hover {{
-            transform: translateY(-2px);
-            box-shadow: 0 15px 30px rgba(102, 126, 234, 0.4);
-        }}
-        .refresh-btn:active {{
-            transform: translateY(0);
-        }}
-        .info {{
-            margin-top: 15px;
-            color: #666;
-            font-size: 14px;
-        }}
-        .quote-id {{
-            background: #f5f5f5;
-            padding: 5px 10px;
-            border-radius: 20px;
-            display: inline-block;
-            font-size: 12px;
-            color: #666;
-        }}
-        .footer {{
-            margin-top: 20px;
-            text-align: center;
-            color: rgba(255,255,255,0.8);
-            font-size: 12px;
-        }}
-        .footer a {{
-            color: white;
-            text-decoration: none;
-        }}
-        .stats {{
-            font-size: 11px;
-            margin-top: 5px;
-            color: rgba(255,255,255,0.6);
-        }}
-        .save-hint {{
-            font-size: 12px;
-            color: #999;
-            margin-top: 10px;
-        }}
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="wallpaper-card">
-            <img class="wallpaper-image" id="wallpaper" src="" alt="Библейские обои" onclick="saveImage()">
-            <div class="controls">
-                <button class="refresh-btn" onclick="loadNewWallpaper()">
-                    🔄 Новая цитата
-                </button>
-                <div class="info">
-                    <span class="quote-id" id="quoteId">Загрузка...</span>
-                </div>
-                <div class="save-hint">
-                    👆 Нажмите на изображение для сохранения
-                </div>
-            </div>
-        </div>
-        <div class="footer">
-            <p>📖 Библейские цитаты • <a href="#" onclick="loadNewWallpaper();return false;">Обновить</a></p>
-            <div class="stats" id="stats"></div>
-        </div>
-    </div>
-
-    <script>
-        // ID цитат из файла
-        const QUOTE_IDS = {quote_ids};
-        const TOTAL_QUOTES = QUOTE_IDS.length;
-        
-        document.getElementById('stats').textContent = `Всего цитат: ${{TOTAL_QUOTES}}`;
-        
-        function getRandomQuoteId() {{
-            return QUOTE_IDS[Math.floor(Math.random() * QUOTE_IDS.length)];
-        }}
-        
-        async function loadWallpaper(quoteId) {{
-            const img = document.getElementById('wallpaper');
-            const quoteIdElement = document.getElementById('quoteId');
-            
-            img.classList.add('loading');
-            
-            // Добавляем timestamp для избежания кэширования
-            const timestamp = new Date().getTime();
-            const imageUrl = `/generate/${{quoteId}}?t=${{timestamp}}`;
-            
-            quoteIdElement.textContent = `Цитата #${{quoteId}}`;
-            
-            // Создаем новый объект Image для предзагрузки
-            const newImg = new Image();
-            newImg.onload = function() {{
-                img.src = this.src;
-                img.classList.remove('loading');
-            }};
-            newImg.onerror = function() {{
-                console.error('Ошибка загрузки');
-                img.classList.remove('loading');
-                quoteIdElement.textContent = 'Ошибка загрузки';
-                // Пробуем другую цитату
-                setTimeout(() => loadNewWallpaper(), 1000);
-            }};
-            newImg.src = imageUrl;
-            
-            // Обновляем URL без перезагрузки
-            const url = new URL(window.location);
-            url.searchParams.set('quote', quoteId);
-            window.history.pushState({{}}, '', url);
-        }}
-        
-        function loadNewWallpaper() {{
-            const quoteId = getRandomQuoteId();
-            loadWallpaper(quoteId);
-        }}
-        
-        function saveImage() {{
-            const img = document.getElementById('wallpaper');
-            if (img.src) {{
-                // Создаем ссылку для скачивания
-                const link = document.createElement('a');
-                link.href = img.src;
-                link.download = `bible-wallpaper-${{new Date().getTime()}}.jpg`;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-            }}
-        }}
-        
-        // Загружаем при старте
-        window.addEventListener('load', function() {{
-            const urlParams = new URLSearchParams(window.location.search);
-            let quoteId = urlParams.get('quote');
-            
-            if (!quoteId) {{
-                quoteId = getRandomQuoteId();
-            }}
-            
-            loadWallpaper(quoteId);
-        }});
-        
-        // Обработка кнопки "Назад"
-        window.addEventListener('popstate', function() {{
-            const urlParams = new URLSearchParams(window.location.search);
-            const quoteId = urlParams.get('quote') || getRandomQuoteId();
-            loadWallpaper(quoteId);
-        }});
-    </script>
+    <!-- При каждом обновлении страницы - новая картинка -->
+    <img src="/image" alt="Библейские обои">
 </body>
 </html>
 """
 
 # ============================================
-# ФУНКЦИИ ДЛЯ ПОЛУЧЕНИЯ ЦИТАТ
+# ПОЛУЧЕНИЕ ЦИТАТЫ
 # ============================================
-
 def get_quote_from_azbyka(quote_id):
     """Получает цитату с azbyka.ru по ID"""
     try:
         url = f"https://azbyka.ru/otechnik/Biblia/tsitaty-iz-biblii/{quote_id}"
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
+        headers = {'User-Agent': 'Mozilla/5.0'}
         
-        print(f"📖 Запрашиваем цитату ID: {quote_id}")
         response = requests.get(url, headers=headers, timeout=10)
         response.encoding = 'utf-8'
         
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Ищем все параграфы с классом txt
             quote_paragraphs = soup.find_all('p', class_='txt')
             
             if quote_paragraphs:
@@ -306,29 +115,23 @@ def get_quote_from_azbyka(quote_id):
                         quote_parts.append(text)
                 
                 if quote_parts:
-                    full_quote = '\n'.join(quote_parts)
-                    print(f"✅ Найдено {len(quote_parts)} параграфов")
-                    return full_quote
+                    return '\n'.join(quote_parts)
             
-            # Если не нашли p.txt, ищем другой текст
             content = soup.find('div', class_='content')
             if content:
-                text = content.get_text().strip()
-                if text:
-                    return text
+                return content.get_text().strip()
                     
     except Exception as e:
-        print(f"❌ Ошибка получения цитаты {quote_id}: {e}")
+        print(f"Ошибка: {e}")
     
     return None
 
 # ============================================
-# ФУНКЦИИ ДЛЯ ПОЛУЧЕНИЯ ИЗОБРАЖЕНИЙ
+# ПОЛУЧЕНИЕ ФОНА
 # ============================================
-
 def get_unsplash_image():
     """Получает изображение с Unsplash API"""
-    keywords = ["nature", "mountain", "ocean", "forest", "sky", "spiritual", "peaceful", "light", "clouds"]
+    keywords = ["nature", "mountain", "ocean", "forest", "sky", "spiritual", "light", "clouds", "peaceful"]
     keyword = random.choice(keywords)
     
     headers = {"Authorization": f"Client-ID {UNSPLASH_ACCESS_KEY}"}
@@ -340,82 +143,60 @@ def get_unsplash_image():
     }
     
     try:
-        print(f"🖼️ Запрашиваем фото с Unsplash: {keyword}")
         response = requests.get(UNSPLASH_API_URL, headers=headers, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
         
         if isinstance(data, list) and len(data) > 0:
             img_url = data[0]["urls"]["regular"]
-            
             img_response = requests.get(img_url, timeout=15)
             img_response.raise_for_status()
             
             img_bytes = io.BytesIO(img_response.content)
             background = Image.open(img_bytes)
-            
-            background = background.resize(
-                (MOBILE_WIDTH, MOBILE_HEIGHT), 
-                RESAMPLE_FILTER
-            )
+            background = background.resize((MOBILE_WIDTH, MOBILE_HEIGHT), Image.Resampling.LANCZOS)
             
             if background.mode != 'RGB':
                 background = background.convert('RGB')
             
-            # Затемняем для лучшей читаемости текста
+            # Затемняем фон для лучшей читаемости
             enhancer = ImageEnhance.Brightness(background)
-            background = enhancer.enhance(0.7)
+            background = enhancer.enhance(0.6)
             
             return background
             
     except Exception as e:
-        print(f"❌ Ошибка Unsplash: {e}")
+        print(f"Ошибка Unsplash: {e}")
     
     return None
 
 def create_gradient_background():
-    """Создает красивый градиентный фон"""
+    """Создает градиентный фон"""
     img = Image.new('RGB', (MOBILE_WIDTH, MOBILE_HEIGHT))
     draw = ImageDraw.Draw(img)
     
-    color_schemes = [
+    colors = [
         ((180, 150, 100), (100, 80, 150)),  # золотой-фиолетовый
-        ((200, 180, 150), (80, 100, 180)),   # песочный-синий
-        ((140, 170, 200), (70, 70, 120)),    # небесный-синий
-        ((160, 120, 100), (120, 80, 150)),   # терракотовый-пурпурный
-        ((100, 120, 150), (50, 50, 80)),     # синий-темно-синий
-        ((150, 130, 100), (80, 60, 100)),    # бежевый-фиолетовый
+        ((200, 180, 150), (80, 100, 180)),  # песочный-синий
+        ((140, 170, 200), (70, 70, 120)),   # небесный-синий
     ]
     
-    color1, color2 = random.choice(color_schemes)
+    color1, color2 = random.choice(colors)
     
-    for y in range(0, MOBILE_HEIGHT, 5):
+    for y in range(MOBILE_HEIGHT):
         ratio = y / MOBILE_HEIGHT
         r = int(color1[0] + (color2[0] - color1[0]) * ratio)
         g = int(color1[1] + (color2[1] - color1[1]) * ratio)
         b = int(color1[2] + (color2[2] - color1[2]) * ratio)
-        
-        for i in range(5):
-            if y + i < MOBILE_HEIGHT:
-                draw.line([(0, y + i), (MOBILE_WIDTH, y + i)], fill=(r, g, b))
+        draw.line([(0, y), (MOBILE_WIDTH, y)], fill=(r, g, b))
     
     return img
 
-def get_background_image():
-    """Универсальная функция получения фона"""
-    img = get_unsplash_image()
-    if img:
-        return img
-    
-    print("🎨 Используем градиентный фон")
-    return create_gradient_background()
-
 # ============================================
-# ФУНКЦИИ ДЛЯ РАБОТЫ С ТЕКСТОМ
+# КРАСИВЫЙ ТЕКСТ
 # ============================================
-
 def wrap_text(text, font, max_width, draw):
-    """Разбивает текст на строки по ширине"""
+    """Разбивает текст на строки"""
     words = text.split()
     lines = []
     current_line = []
@@ -435,133 +216,107 @@ def wrap_text(text, font, max_width, draw):
     
     return lines
 
-def add_text_to_image(image, text):
-    """Накладывает текст на изображение"""
-    img_with_text = image.copy()
-    draw = ImageDraw.Draw(img_with_text)
+def add_beautiful_text(image, text):
+    """Накладывает красивый текст на изображение"""
+    img = image.copy()
+    draw = ImageDraw.Draw(img, 'RGBA')
     
-    # Загружаем шрифт
+    # Загружаем красивый шрифт
     try:
         font_paths = [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
             "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
             "/System/Library/Fonts/Times.ttc",
-            "C:\\Windows\\Fonts\\times.ttf",
         ]
         
-        font = None
+        title_font = None
         for path in font_paths:
             if os.path.exists(path):
-                font = ImageFont.truetype(path, 90)
-                print(f"🔤 Загружен шрифт: {path}")
+                title_font = ImageFont.truetype(path, 110)
                 break
         
-        if font is None:
-            font = ImageFont.load_default()
+        if title_font is None:
+            title_font = ImageFont.load_default()
+            
     except:
-        font = ImageFont.load_default()
+        title_font = ImageFont.load_default()
     
     # Параметры текста
-    max_width = MOBILE_WIDTH - 160
-    target_y = int(MOBILE_HEIGHT * 0.65)
+    max_width = MOBILE_WIDTH - 200
+    center_y = MOBILE_HEIGHT // 2
     
     # Разбиваем текст
-    lines = wrap_text(text, font, max_width, draw)
+    lines = wrap_text(text, title_font, max_width, draw)
     
     # Вычисляем высоту текста
     total_height = 0
     line_heights = []
     for line in lines:
-        bbox = draw.textbbox((0, 0), line, font=font)
+        bbox = draw.textbbox((0, 0), line, font=title_font)
         h = bbox[3] - bbox[1]
         line_heights.append(h)
-        total_height += h + 10
-    total_height -= 10
+        total_height += h + 15
+    total_height -= 15
     
     # Позиция начала
-    start_y = target_y - total_height // 2
-    padding = 40
-    
-    # Максимальная ширина строки
-    max_line_width = 0
-    for line in lines:
-        bbox = draw.textbbox((0, 0), line, font=font)
-        max_line_width = max(max_line_width, bbox[2] - bbox[0])
-    
-    # Координаты подложки
-    left = (MOBILE_WIDTH - max_line_width) // 2 - padding
-    right = (MOBILE_WIDTH + max_line_width) // 2 + padding
-    top = start_y - padding
-    bottom = start_y + total_height + padding
-    
-    # Создаем полупрозрачную подложку
-    overlay = Image.new('RGBA', (right-left, bottom-top), (0, 0, 0, 180))
-    img_with_text = img_with_text.convert('RGBA')
-    img_with_text.paste(overlay, (left, top), overlay)
-    
-    # Рисуем текст
-    draw = ImageDraw.Draw(img_with_text)
+    start_y = center_y - total_height // 2
     current_y = start_y
     
+    # Рисуем каждую строку
     for i, line in enumerate(lines):
-        bbox = draw.textbbox((0, 0), line, font=font)
-        x = (MOBILE_WIDTH - (bbox[2] - bbox[0])) // 2
+        bbox = draw.textbbox((0, 0), line, font=title_font)
+        line_width = bbox[2] - bbox[0]
+        x = (MOBILE_WIDTH - line_width) // 2
         
         # Тень
-        draw.text((x + 2, current_y + 2), line, font=font, fill=(0, 0, 0, 150))
-        # Основной текст
-        draw.text((x, current_y), line, font=font, fill=(255, 255, 255))
+        shadow_offset = 4
+        draw.text((x + shadow_offset, current_y + shadow_offset), line, 
+                 font=title_font, fill=(0, 0, 0, 180))
         
-        current_y += line_heights[i] + 10
+        # Легкое свечение
+        for offset in range(1, 3):
+            draw.text((x - offset, current_y), line, font=title_font, fill=(255, 255, 255, 30))
+            draw.text((x + offset, current_y), line, font=title_font, fill=(255, 255, 255, 30))
+            draw.text((x, current_y - offset), line, font=title_font, fill=(255, 255, 255, 30))
+            draw.text((x, current_y + offset), line, font=title_font, fill=(255, 255, 255, 30))
+        
+        # Основной текст
+        draw.text((x, current_y), line, font=title_font, fill=(255, 255, 255, 255))
+        
+        current_y += line_heights[i] + 15
     
-    return img_with_text.convert('RGB')
+    return img.convert('RGB')
 
 # ============================================
 # ЭНДПОИНТЫ
 # ============================================
-
 @app.get("/", response_class=HTMLResponse)
 async def root():
-    """Главная страница с интерфейсом"""
-    return HTMLResponse(HTML_TEMPLATE.format(quote_ids=str(QUOTE_IDS)))
+    """Страница с картинкой - при обновлении новая"""
+    return HTMLResponse(SIMPLE_HTML)
 
-@app.get("/health")
-async def health_check():
-    """Проверка здоровья сервиса"""
-    return {
-        "status": "ok",
-        "service": "Bible Wallpaper Generator",
-        "quotes_loaded": len(QUOTE_IDS),
-        "version": "1.0"
-    }
-
-@app.get("/generate/{quote_id}")
-async def generate_wallpaper(quote_id: str):
-    """Генерирует обои с цитатой по ID"""
+@app.get("/image")
+async def get_image():
+    """Генерирует случайную картинку"""
     try:
-        print(f"🎨 Генерация обоев для ID: {quote_id}")
-        
-        # Получаем цитату
+        # Случайная цитата
+        quote_id = random.choice(QUOTE_IDS)
         quote = get_quote_from_azbyka(quote_id)
         
         if not quote:
-            print(f"⚠️ Цитата не найдена, используем запасную")
             quote = random.choice(FALLBACK_QUOTES)
         
-        # Получаем фон
-        background = get_background_image()
+        # Случайный фон
+        background = get_unsplash_image()
+        if not background:
+            background = create_gradient_background()
         
         # Добавляем текст
-        final_image = add_text_to_image(background, quote)
+        final_image = add_beautiful_text(background, quote)
         
-        # Сохраняем в байты
+        # Отдаем картинку
         img_byte_arr = io.BytesIO()
-        final_image.save(
-            img_byte_arr, 
-            format='JPEG', 
-            quality=JPEG_QUALITY, 
-            optimize=True
-        )
+        final_image.save(img_byte_arr, format='JPEG', quality=JPEG_QUALITY, optimize=True)
         img_byte_arr.seek(0)
         
         return StreamingResponse(
@@ -575,10 +330,10 @@ async def generate_wallpaper(quote_id: str):
         )
         
     except Exception as e:
-        print(f"❌ Критическая ошибка: {e}")
-        # Возвращаем простое изображение с ошибкой
+        print(f"Ошибка: {e}")
+        # Запасной вариант
         img = Image.new('RGB', (MOBILE_WIDTH, MOBILE_HEIGHT), (100, 80, 150))
-        img = add_text_to_image(img, random.choice(FALLBACK_QUOTES))
+        img = add_beautiful_text(img, random.choice(FALLBACK_QUOTES))
         
         img_byte_arr = io.BytesIO()
         img.save(img_byte_arr, format='JPEG', quality=80)
@@ -586,23 +341,6 @@ async def generate_wallpaper(quote_id: str):
         
         return StreamingResponse(img_byte_arr, media_type="image/jpeg")
 
-@app.get("/random")
-async def random_wallpaper():
-    """Генерирует обои со случайной цитатой"""
-    quote_id = random.choice(QUOTE_IDS)
-    return await generate_wallpaper(quote_id)
-
-@app.get("/api/quotes")
-async def get_quotes():
-    """Возвращает список доступных ID цитат"""
-    return {
-        "total": len(QUOTE_IDS),
-        "quotes": QUOTE_IDS
-    }
-
-# ============================================
-# ЗАПУСК
-# ============================================
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)

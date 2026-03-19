@@ -224,7 +224,7 @@ def wrap_text(text, font, max_width, draw):
     return lines
 
 def add_beautiful_text(image, text):
-    """Накладывает красивый текст на изображение"""
+    """Накладывает красивый текст на изображение - смещен вниз"""
     img = image.copy()
     draw = ImageDraw.Draw(img, 'RGBA')
     
@@ -250,7 +250,10 @@ def add_beautiful_text(image, text):
     
     # Параметры текста
     max_width = MOBILE_WIDTH - 200
-    center_y = MOBILE_HEIGHT // 2
+    
+    # СМЕЩАЕМ ТЕКСТ НИЖЕ (было center_y = MOBILE_HEIGHT // 2)
+    # Теперь текст начинается на 60% высоты экрана (ниже центра)
+    text_start_y = int(MOBILE_HEIGHT * 0.6)  # 60% от верхнего края
     
     # Разбиваем текст
     lines = wrap_text(text, title_font, max_width, draw)
@@ -265,8 +268,8 @@ def add_beautiful_text(image, text):
         total_height += h + 15
     total_height -= 15
     
-    # Позиция начала
-    start_y = center_y - total_height // 2
+    # Позиция начала (текст центрирован относительно точки text_start_y)
+    start_y = text_start_y - total_height // 2
     current_y = start_y
     
     # Рисуем каждую строку

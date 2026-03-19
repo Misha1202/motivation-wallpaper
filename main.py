@@ -12,10 +12,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, HTMLResponse
-from fastapi.templating import Jinja2Templates
-from fastapi.staticfiles import StaticFiles
 import uvicorn
-from datetime import datetime
 
 # ============================================
 # КОНФИГУРАЦИЯ
@@ -62,7 +59,7 @@ app.add_middleware(
 )
 
 # ============================================
-# HTML ШАБЛОН (встроенный)
+# HTML ШАБЛОН (с экранированными фигурными скобками)
 # ============================================
 
 HTML_TEMPLATE = """
@@ -73,12 +70,12 @@ HTML_TEMPLATE = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Библейские обои | Генератор</title>
     <style>
-        * {
+        * {{
             margin: 0;
             padding: 0;
             box-sizing: border-box;
-        }
-        body {
+        }}
+        body {{
             min-height: 100vh;
             display: flex;
             justify-content: center;
@@ -86,19 +83,19 @@ HTML_TEMPLATE = """
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             padding: 10px;
-        }
-        .container {
+        }}
+        .container {{
             width: 100%;
             max-width: 430px;
             margin: 0 auto;
-        }
-        .wallpaper-card {
+        }}
+        .wallpaper-card {{
             background: white;
             border-radius: 30px;
             overflow: hidden;
             box-shadow: 0 20px 40px rgba(0,0,0,0.3);
-        }
-        .wallpaper-image {
+        }}
+        .wallpaper-image {{
             display: block;
             width: 100%;
             height: auto;
@@ -106,16 +103,16 @@ HTML_TEMPLATE = """
             background: #f0f0f0;
             transition: opacity 0.3s ease;
             cursor: pointer;
-        }
-        .wallpaper-image.loading {
+        }}
+        .wallpaper-image.loading {{
             opacity: 0.5;
-        }
-        .controls {
+        }}
+        .controls {{
             padding: 20px;
             background: white;
             text-align: center;
-        }
-        .refresh-btn {
+        }}
+        .refresh-btn {{
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             border: none;
@@ -129,47 +126,47 @@ HTML_TEMPLATE = """
             width: 100%;
             max-width: 300px;
             margin: 0 auto;
-        }
-        .refresh-btn:hover {
+        }}
+        .refresh-btn:hover {{
             transform: translateY(-2px);
             box-shadow: 0 15px 30px rgba(102, 126, 234, 0.4);
-        }
-        .refresh-btn:active {
+        }}
+        .refresh-btn:active {{
             transform: translateY(0);
-        }
-        .info {
+        }}
+        .info {{
             margin-top: 15px;
             color: #666;
             font-size: 14px;
-        }
-        .quote-id {
+        }}
+        .quote-id {{
             background: #f5f5f5;
             padding: 5px 10px;
             border-radius: 20px;
             display: inline-block;
             font-size: 12px;
             color: #666;
-        }
-        .footer {
+        }}
+        .footer {{
             margin-top: 20px;
             text-align: center;
             color: rgba(255,255,255,0.8);
             font-size: 12px;
-        }
-        .footer a {
+        }}
+        .footer a {{
             color: white;
             text-decoration: none;
-        }
-        .stats {
+        }}
+        .stats {{
             font-size: 11px;
             margin-top: 5px;
             color: rgba(255,255,255,0.6);
-        }
-        .save-hint {
+        }}
+        .save-hint {{
             font-size: 12px;
             color: #999;
             margin-top: 10px;
-        }
+        }}
     </style>
 </head>
 <body>
@@ -196,16 +193,16 @@ HTML_TEMPLATE = """
 
     <script>
         // ID цитат из файла
-        const QUOTE_IDS = %s;
+        const QUOTE_IDS = {quote_ids};
         const TOTAL_QUOTES = QUOTE_IDS.length;
         
-        document.getElementById('stats').textContent = `Всего цитат: ${TOTAL_QUOTES}`;
+        document.getElementById('stats').textContent = `Всего цитат: ${{TOTAL_QUOTES}}`;
         
-        function getRandomQuoteId() {
+        function getRandomQuoteId() {{
             return QUOTE_IDS[Math.floor(Math.random() * QUOTE_IDS.length)];
-        }
+        }}
         
-        async function loadWallpaper(quoteId) {
+        async function loadWallpaper(quoteId) {{
             const img = document.getElementById('wallpaper');
             const quoteIdElement = document.getElementById('quoteId');
             
@@ -213,67 +210,67 @@ HTML_TEMPLATE = """
             
             // Добавляем timestamp для избежания кэширования
             const timestamp = new Date().getTime();
-            const imageUrl = `/generate/${quoteId}?t=${timestamp}`;
+            const imageUrl = `/generate/${{quoteId}}?t=${{timestamp}}`;
             
-            quoteIdElement.textContent = `Цитата #${quoteId}`;
+            quoteIdElement.textContent = `Цитата #${{quoteId}}`;
             
             // Создаем новый объект Image для предзагрузки
             const newImg = new Image();
-            newImg.onload = function() {
+            newImg.onload = function() {{
                 img.src = this.src;
                 img.classList.remove('loading');
-            };
-            newImg.onerror = function() {
+            }};
+            newImg.onerror = function() {{
                 console.error('Ошибка загрузки');
                 img.classList.remove('loading');
                 quoteIdElement.textContent = 'Ошибка загрузки';
                 // Пробуем другую цитату
                 setTimeout(() => loadNewWallpaper(), 1000);
-            };
+            }};
             newImg.src = imageUrl;
             
             // Обновляем URL без перезагрузки
             const url = new URL(window.location);
             url.searchParams.set('quote', quoteId);
-            window.history.pushState({}, '', url);
-        }
+            window.history.pushState({{}}, '', url);
+        }}
         
-        function loadNewWallpaper() {
+        function loadNewWallpaper() {{
             const quoteId = getRandomQuoteId();
             loadWallpaper(quoteId);
-        }
+        }}
         
-        function saveImage() {
+        function saveImage() {{
             const img = document.getElementById('wallpaper');
-            if (img.src) {
+            if (img.src) {{
                 // Создаем ссылку для скачивания
                 const link = document.createElement('a');
                 link.href = img.src;
-                link.download = `bible-wallpaper-${new Date().getTime()}.jpg`;
+                link.download = `bible-wallpaper-${{new Date().getTime()}}.jpg`;
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
-            }
-        }
+            }}
+        }}
         
         // Загружаем при старте
-        window.addEventListener('load', function() {
+        window.addEventListener('load', function() {{
             const urlParams = new URLSearchParams(window.location.search);
             let quoteId = urlParams.get('quote');
             
-            if (!quoteId) {
+            if (!quoteId) {{
                 quoteId = getRandomQuoteId();
-            }
+            }}
             
             loadWallpaper(quoteId);
-        });
+        }});
         
         // Обработка кнопки "Назад"
-        window.addEventListener('popstate', function() {
+        window.addEventListener('popstate', function() {{
             const urlParams = new URLSearchParams(window.location.search);
             const quoteId = urlParams.get('quote') || getRandomQuoteId();
             loadWallpaper(quoteId);
-        });
+        }});
     </script>
 </body>
 </html>

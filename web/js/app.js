@@ -176,9 +176,11 @@ async function registerServiceWorker() {
 
 async function boot() {
   bindEvents();
+  const cyrillic = "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдеёжзийклмнопрстуфхцчшщъыьэюя";
   await Promise.allSettled([
-    document.fonts.load('700 100px "PT Serif"'),
-    document.fonts.load('400 50px "PT Serif"'),
+    document.fonts.load('700 100px "PT Serif"', cyrillic),
+    document.fonts.load('400 50px "PT Serif"', cyrillic),
+    document.fonts.ready,
   ]);
   await Promise.allSettled([quotes.load(), backgrounds.load()]);
   await refresh({ first: true });

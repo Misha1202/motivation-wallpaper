@@ -27,7 +27,20 @@ OUT_DIR = ROOT / "web" / "backgrounds"
 MANIFEST = OUT_DIR / "manifest.json"
 
 API_URL = "https://api.unsplash.com/photos/random"
-QUERIES = ["nature", "mountains", "ocean", "forest", "sky", "clouds", "sunrise", "peaceful"]
+QUERIES = [
+    "mountain landscape",
+    "misty forest",
+    "calm sea horizon",
+    "sunrise mountains",
+    "clouds sky",
+    "lake reflection",
+    "green hills",
+    "desert dunes",
+    "snowy peaks",
+    "forest fog",
+    "golden hour landscape",
+    "quiet beach",
+]
 # Публичный demo-ключ из старой версии приложения. Лучше задать секрет
 # UNSPLASH_ACCESS_KEY в настройках репозитория и отозвать этот ключ.
 FALLBACK_KEY = "t9SeuIi4nAnCIb2vIPnA9hAYx4CbIbrbgdTHrBSDjZc"

@@ -1,4 +1,4 @@
-const CACHE = "bible-wallpaper-v3";
+const CACHE = "bible-wallpaper-v4";
 
 const SHELL = [
   "./",
@@ -22,11 +22,31 @@ self.addEventListener("install", (event) => {
   );
 });
 
+async function pruneBackgrounds() {
+  try {
+    const response = await fetch("backgrounds/manifest.json", { cache: "no-store" });
+    if (!response.ok) return;
+    const data = await response.json();
+    const scope = self.registration.scope;
+    const keep = new Set((data.photos || []).map((photo) => new URL(`backgrounds/${photo.file}`, scope).href));
+    const cache = await caches.open(CACHE);
+    const requests = await cache.keys();
+    await Promise.all(
+      requests
+        .filter((request) => request.url.includes("/backgrounds/") && !keep.has(request.url))
+        .map((request) => cache.delete(request)),
+    );
+  } catch (error) {
+    /* офлайн — почистим в следующий раз */
+  }
+}
+
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
       .keys()
       .then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))))
+      .then(() => pruneBackgrounds())
       .then(() => self.clients.claim()),
   );
 });

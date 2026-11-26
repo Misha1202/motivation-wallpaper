@@ -1,0 +1,58 @@
+name: Deploy site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "tools/**"
+      - ".github/workflows/pages.yml"
+  schedule:
+    # Каждый понедельник в 04:00 UTC — свежая подборка фото.
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Скачать фоны с Unsplash
+        env:
+          UNSPLASH_ACCESS_KEY: ${{ secrets.UNSPLASH_ACCESS_KEY }}
+        run: python3 tools/fetch_backgrounds.py --count 60
+
+      - name: Настроить Pages
+        uses: actions/configure-pages@v5
+
+      - name: Собрать артефакт
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Опубликовать
+        id: deployment
+        uses: actions/deploy-pages@v4

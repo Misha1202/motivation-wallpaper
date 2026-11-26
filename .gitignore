@@ -1,0 +1,8 @@
+# Фото скачиваются в GitHub Actions перед деплоем и не хранятся в git
+web/backgrounds/*.jpg
+
+# Служебное
+.DS_Store
+__pycache__/
+*.pyc
+node_modules/
